@@ -1,37 +1,42 @@
 {
   "manifest_version": 3,
   "name": "Gemini Exam Solver",
-  "version": "1.6.2",
-  "description": "Решает тесты на экране с помощью Gemini 2.5 Flash",
-
+  "version": "2.1.0",
+  "description": "Решает тесты Cisco на экране с помощью Gemini",
   "author": "Valerii Dubkoff aka Chicagoist",
-  "homepage_url": "https:/https://github.com/chicagoist/gemini-solver",
+  "homepage_url": "https://github.com/chicagoist/gemini-solver",
 
   "permissions": [
     "activeTab",
     "scripting",
     "storage"
   ],
-  "icons": {
-    "48": "icon.png",
-    "96": "icon.png"
-  },
+  
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "Решить вопрос",
+    "default_title": "Открыть панель",
     "default_icon": "icon.png"
+  },
 
-  },
   "background": {
-    "scripts": ["background.js"]
+    "scripts": ["background.js"],
+    "type": "module"
   },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+
   "host_permissions": [
     "https://generativelanguage.googleapis.com/*"
   ],
+
   "browser_specific_settings": {
     "gecko": {
       "id": "gemini-solver@my-local-dev",
       "strict_min_version": "109.0"
     }
-}
+  }
 }
