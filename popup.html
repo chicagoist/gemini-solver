@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap" rel="stylesheet">
+  
+  <style>
+    body { 
+	/*width: 300px; font-family: sans-serif; padding: 15px;*/
+	width: 300px;       /* Увеличили ширину (максимум обычно 800px) */
+    min-height: 300px;  /* Минимальная высота */
+    font-family: 'Ubuntu', sans-serif;
+    padding: 15px;
+	}
+input { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; font-family: 'Ubuntu', sans-serif; }
+    button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; font-weight: bold; font-family: 'Ubuntu', sans-serif;}
+    button:hover { background: #0056b3; }
+    #result { margin-top: 15px; padding: 10px; background: #f0f0f0; border-radius: 4px; min-height: 50px; white-space: pre-wrap; font-size: 14px; font-family: 'Ubuntu', sans-serif;}
+    .hidden { display: none; }
+    #status { font-size: 12px; color: gray; margin-bottom: 5px; }
+  </style>
+</head>
+<body>
+  <h3>🤖 Gemini Solver</h3>
+  
+  <div id="setup-block">
+    <label>Вставь API Key от Google:</label>
+    <input type="password" id="apiKey" placeholder="AIzaSy...">
+    <button id="saveKey">Сохранить ключ</button>
+  </div>
+
+  <div id="work-block" class="hidden">
+    <div id="status">Готов к работе</div>
+    <button id="solveBtn">📸 Снять экран и Решить</button>
+    <div id="result">Ответ появится здесь...</div>
+    <button id="resetKey" style="margin-top: 10px; background: #666; font-size: 10px;">Сменить ключ</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
