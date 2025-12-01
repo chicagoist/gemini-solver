@@ -1,8 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Gemini Exam Solver",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "Решает тесты на экране с помощью Gemini 2.5 Flash",
+
+  "author": "Valerii Dubkoff aka Chicagoist",
+  "homepage_url": "https:/https://github.com/chicagoist/gemini-solver",
+
   "permissions": [
     "activeTab",
     "scripting",
