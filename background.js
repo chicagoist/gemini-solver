@@ -1,132 +1,76 @@
 // background.js
-// =========================
-// GEMINI SOLVER 2.2.0
-// =========================
+// -----------------------------------------
+// Gemini Solver — Background (v2.2.1)
+// -----------------------------------------
 
-// Клик по иконке → открыть/закрыть панель
 chrome.action.onClicked.addListener((tab) => {
   chrome.tabs.sendMessage(tab.id, { action: "TOGGLE_PANEL" });
 });
 
-// Основной обработчик запросов
-chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
-  if (req.action === "CAPTURE_AND_SOLVE") {
-    
-    // --- ШАГ 1. Сбор текста с фреймов и shadow-root ---
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "CAPTURE_AND_SOLVE") {
+
     chrome.scripting.executeScript({
       target: { tabId: sender.tab.id, allFrames: true },
-      func: extractDeepText
+      func: () => document.body.innerText || document.body.textContent
     }, (results) => {
 
-      if (!results || chrome.runtime.lastError) {
-        sendResponse({ error: "Не удалось прочитать DOM: " + chrome.runtime.lastError?.message });
-        return;
-      }
-
-      // Склеиваем все фреймы с ID
       let fullPageText = "";
-      results.forEach((frame, i) => {
-        fullPageText += `\n\n----- FRAME ${i + 1} START -----\n`;
-        fullPageText += frame.result || "";
-        fullPageText += `\n----- FRAME ${i + 1} END -----\n`;
-      });
 
-      if (fullPageText.length > 200000) {
-        fullPageText = fullPageText.substring(0, 200000);
+      if (chrome.runtime.lastError || !results) {
+        fullPageText = "Ошибка чтения DOM.";
+      } else {
+        fullPageText = results
+          .map(frame => `--- FRAME START ---\n${frame.result}\n--- FRAME END ---`)
+          .join("\n\n");
       }
 
-      // --- ШАГ 2. Делаем скриншот ---
+      // safety limit
+      if (fullPageText.length > 100000)
+        fullPageText = fullPageText.substring(0, 100000);
+
       chrome.tabs.captureVisibleTab(null, { format: "png" }, (dataUrl) => {
-        if (chrome.runtime.lastError || !dataUrl) {
-          sendResponse({ error: "Ошибка скриншота: " + chrome.runtime.lastError?.message });
+        if (chrome.runtime.lastError) {
+          sendResponse({ error: chrome.runtime.lastError.message });
           return;
         }
 
-        // --- ШАГ 3. Отправляем в Gemini ---
-        chrome.storage.local.get(["geminiKey"], async (conf) => {
-          if (!conf.geminiKey) {
-            sendResponse({ error: "Введите API ключ в панели" });
+        chrome.storage.local.get(['geminiKey'], async (result) => {
+          if (!result.geminiKey) {
+            sendResponse({ error: "Нет API-ключа!" });
             return;
           }
 
           try {
-            const answer = await askGemini(conf.geminiKey, dataUrl, fullPageText);
+            const answer = await askGemini(result.geminiKey, dataUrl, fullPageText);
             sendResponse({ answer });
-          } catch (e) {
-            sendResponse({ error: e.message });
+          } catch (err) {
+            sendResponse({ error: err.message });
           }
         });
       });
     });
 
-    return true; // async response
+    return true;
   }
 });
 
 
-// =========================================================
-//  DOM Extractor 2.2.0 — Shadow DOM + Iframe-safe extractor
-// =========================================================
-function extractDeepText() {
+// ============================================================================
+//   askGemini() — версия 2.2.0
+//   Авто-переключение моделей, таймауты, логирование, фильтр качества
+// ============================================================================
 
-  function getText(node) {
-    let out = "";
+async function askGemini(apiKey, base64Image, pageText) {
+  const MODELS = [
+    { name: "gemini-2.0-flash-thinking", timeout: 10000 },
+    { name: "gemini-2.0-pro", timeout: 20000 },
+    { name: "gemini-1.5-pro", timeout: 25000 }
+  ];
 
-    if (!node) return "";
+  const cleanBase64 = base64Image.split(',')[1];
 
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent.replace(/\s+/g, " ").trim();
-      if (text.length > 0) out += text + " ";
-    }
-
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      // Если ShadowRoot
-      if (node.shadowRoot) {
-        out += getText(node.shadowRoot);
-      }
-    }
-
-    // Рекурсивный обход
-    let child = node.firstChild;
-    while (child) {
-      out += getText(child);
-      child = child.nextSibling;
-    }
-    return out;
-  }
-
-  let text = "";
-
-  try {
-    text += getText(document.body);
-  } catch (e) {}
-
-  // Попытка обработать iframe, если они доступны
-  const iframes = document.querySelectorAll("iframe");
-  iframes.forEach((f, i) => {
-    try {
-      const doc = f.contentDocument;
-      if (doc) {
-        text += `\n[IFRAME #${i}]\n`;
-        text += getText(doc.body);
-      }
-    } catch (e) {
-      // CORS → пропускаем
-    }
-  });
-
-  return text;
-}
-
-
-// =========================================================
-// Gemini Request 2.2.0
-// =========================================================
-async function askGemini(apiKey, base64, text) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  const clean = base64.split(",")[1];
-
-  const prompt = `
+  const promptText = `
 Ты эксперт по экзаменам и IT-квестам.
 
     ВХОДНЫЕ ДАННЫЕ:
@@ -146,32 +90,108 @@ async function askGemini(apiKey, base64, text) {
     Дай краткое пояснение на русском (почему этот ответ верен).
 
     ПОЛНЫЙ ТЕКСТ СТРАНИЦЫ:
-${text}
+${pageText}
 `;
 
-  const payload = {
-    contents: [{
-      parts: [
-        { text: prompt },
-        { inline_data: {
-            mime_type: "image/png",
-            data: clean
-        }}
-      ]
-    }]
-  };
+  // --- Проверка качества ответа ---
+  function isBadAnswer(a) {
+    if (!a) return true;
+    const t = a.trim().toLowerCase();
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+    if (t.length < 20) return true;
+    if (t.includes("not sure") || t.includes("cannot answer")) return true;
 
-  const data = await res.json();
+    const hasAbcd = /(^|\s)[abcd][).:-]/i.test(a);
+    const hasArrow = /->/.test(a);
 
-  if (data.error) throw new Error(data.error.message);
-  if (!data.candidates?.[0]?.content?.parts?.[0]?.text)
-    throw new Error("Gemini вернул пустой ответ");
+    if (!hasAbcd && !hasArrow && t.split(" ").length <= 3)
+      return true;
 
-  return data.candidates[0].content.parts[0].text;
+    return false;
+  }
+
+  // --- Таймаут обёртка ---
+  async function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(id);
+      return res;
+    } catch (e) {
+      clearTimeout(id);
+      throw e;
+    }
+  }
+
+  const saveLog = (obj) => chrome.storage.local.set({ lastGeminiLog: obj });
+
+  // -----------------------------------------
+  // ПЕРЕБОР МОДЕЛЕЙ (лучшие → старшие)
+  // -----------------------------------------
+  for (const m of MODELS) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m.name}:generateContent?key=${apiKey}`;
+
+    const payload = {
+      contents: [{
+        parts: [
+          { text: promptText },
+          { inline_data: { mime_type: "image/png", data: cleanBase64 } }
+        ]
+      }]
+    };
+
+    try {
+      const t0 = performance.now();
+
+      const response = await fetchWithTimeout(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }, m.timeout);
+
+      const data = await response.json();
+      const t1 = performance.now();
+
+      if (data.error) {
+        saveLog({
+          ok: false,
+          model: m.name,
+          error: data.error.message,
+          duration: t1 - t0
+        });
+        continue;
+      }
+
+      const answer = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!isBadAnswer(answer)) {
+        saveLog({
+          ok: true,
+          model: m.name,
+          preview: answer.slice(0, 60),
+          duration: t1 - t0
+        });
+        return answer;
+      }
+
+      saveLog({
+        ok: false,
+        model: m.name,
+        error: "bad_answer",
+        preview: answer?.slice(0, 80)
+      });
+
+    } catch (e) {
+      saveLog({
+        ok: false,
+        model: m.name,
+        error: e.message
+      });
+      continue;
+    }
+  }
+
+  throw new Error("Все модели Gemini вернули ошибку или плохой ответ.");
 }

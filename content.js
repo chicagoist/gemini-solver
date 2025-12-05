@@ -1,12 +1,12 @@
 // content.js
-// =========================
-// GEMINI SOLVER 2.2.0 PANEL
-// =========================
+// -----------------------------------------
+// Gemini Solver — Floating Panel (v2.2.1)
+// -----------------------------------------
 
 let panel = null;
 
-chrome.runtime.onMessage.addListener((req) => {
-  if (req.action === "TOGGLE_PANEL") {
+chrome.runtime.onMessage.addListener((request) => {
+  if (request.action === "TOGGLE_PANEL") {
     if (panel) togglePanel();
     else createPanel();
   }
@@ -20,105 +20,125 @@ function createPanel() {
     position: fixed;
     top: 20px;
     right: 20px;
-    width: 320px;
+    width: 330px;
     background: #fff;
-    border: 1px solid #ccc;
-    box-shadow: 0 4px 25px rgba(0,0,0,0.3);
-    z-index: 2147483647;
     border-radius: 12px;
+    z-index: 2147483647;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
     font-family: Segoe UI, sans-serif;
+    border: 1px solid #ccc;
   `;
 
   panel.innerHTML = `
-    <div id="gemini-header" style="padding: 12px; background:#007bff; color:#fff; border-radius:12px 12px 0 0; cursor:move; display:flex; justify-content:space-between;">
-      <span><b>🤖 Gemini Solver 2.2.0</b></span>
-      <button id="gemini-close" style="background:none;border:none;color:white;font-size:20px;">×</button>
+    <div id="gemini-header" style="background:#007bff; color:#fff; padding:10px 14px; border-radius:12px 12px 0 0; cursor:move; font-weight:600;">
+      Gemini Solver
+      <button id="gemini-close" style="float:right;background:none;color:white;border:none;font-size:18px;cursor:pointer;">×</button>
     </div>
 
-    <div style="padding:15px;">
-      <div id="setup">
-        <input id="gemini-key" type="password" placeholder="API Key" style="width:100%; padding:8px;">
-        <button id="save-key" style="margin-top:8px;width:100%; padding:8px; background:#28a745; color:white;">Сохранить ключ</button>
+    <div style="padding:12px;">
+      <div id="gemini-setup">
+        <input type="password" id="gemini-key" placeholder="API Key..." style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd;margin-bottom:6px;">
+        <button id="gemini-save" style="width:100%;padding:9px;background:#28a745;color:white;border:none;border-radius:6px;font-weight:600;cursor:pointer;">Сохранить ключ</button>
       </div>
 
-      <div id="work" style="display:none;">
-        <button id="solve" style="width:100%; padding:10px; background:#007bff; color:white;">📸 Анализировать экран</button>
-        <div id="result" style="margin-top:12px; background:#f8f9fa; padding:10px; min-height:60px; max-height:400px; overflow:auto;"></div>
-        <button id="reset" style="margin-top:5px;background:none;border:none;color:#999;font-size:12px;">Сбросить ключ</button>
+      <div id="gemini-work" style="display:none;">
+        <button id="gemini-solve" style="width:100%;padding:10px;background:#007bff;color:white;border:none;border-radius:6px;font-weight:600;cursor:pointer;">
+          📸 Анализировать экран
+        </button>
+
+        <div id="gemini-result" style="margin-top:12px;padding:10px;background:#f7f7f7;border-radius:6px;border:1px solid #eee;max-height:420px;overflow-y:auto;">
+          Нажмите кнопку...
+        </div>
+
+        <button id="gemini-reset" style="margin-top:6px;font-size:12px;color:#777;background:none;border:none;text-decoration:underline;cursor:pointer;">
+          Сброс ключа
+        </button>
       </div>
     </div>
   `;
 
   document.body.appendChild(panel);
 
-  const setup = panel.querySelector("#setup");
-  const work = panel.querySelector("#work");
-  const key = panel.querySelector("#gemini-key");
-  const save = panel.querySelector("#save-key");
-  const solve = panel.querySelector("#solve");
-  const result = panel.querySelector("#result");
+  const header = document.getElementById("gemini-header");
+  const closeBtn = document.getElementById("gemini-close");
+  const saveBtn = document.getElementById("gemini-save");
+  const solveBtn = document.getElementById("gemini-solve");
+  const resetBtn = document.getElementById("gemini-reset");
+  const keyInput = document.getElementById("gemini-key");
+  const setupDiv = document.getElementById("gemini-setup");
+  const workDiv = document.getElementById("gemini-work");
+  const resultDiv = document.getElementById("gemini-result");
 
-  chrome.storage.local.get(["geminiKey"], (r) => {
-    if (r.geminiKey) {
-      setup.style.display = "none";
-      work.style.display = "block";
+  // Восстанавливаем ключ
+  chrome.storage.local.get(["geminiKey"], (res) => {
+    if (res.geminiKey) {
+      setupDiv.style.display = "none";
+      workDiv.style.display = "block";
     }
   });
 
-  save.onclick = () => {
-    const v = key.value.trim();
-    if (!v) return;
-    chrome.storage.local.set({ geminiKey: v }, () => {
-      setup.style.display = "none";
-      work.style.display = "block";
+  saveBtn.onclick = () => {
+    const k = keyInput.value.trim();
+    if (k) {
+      chrome.storage.local.set({ geminiKey: k }, () => {
+        setupDiv.style.display = "none";
+        workDiv.style.display = "block";
+      });
+    }
+  };
+
+  resetBtn.onclick = () => {
+    chrome.storage.local.remove("geminiKey", () => {
+      setupDiv.style.display = "block";
+      workDiv.style.display = "none";
     });
   };
 
-  solve.onclick = () => {
-    result.innerText = "⏳ Анализ…";
+  closeBtn.onclick = togglePanel;
 
-    panel.style.visibility = "hidden";
+  // --- Анализ ---
+  solveBtn.onclick = () => {
+    resultDiv.innerText = "⏳ Анализ...";
+
+    panel.style.display = "none";
 
     setTimeout(() => {
-      chrome.runtime.sendMessage({ action: "CAPTURE_AND_SOLVE" }, (resp) => {
-        panel.style.visibility = "visible";
+      chrome.runtime.sendMessage({ action: "CAPTURE_AND_SOLVE" }, (response) => {
+        panel.style.display = "block";
 
-        if (resp.error) {
-          result.innerHTML = `<span style='color:red'>${resp.error}</span>`;
-        } else {
-          result.innerHTML = resp.answer.replace(/\n/g, "<br>");
+        if (!response) {
+          resultDiv.innerText = "Ошибка: нет ответа от background.";
+          return;
         }
+
+        if (response.error) {
+          resultDiv.innerHTML = `<b style="color:red;">Ошибка:</b> ${response.error}`;
+          return;
+        }
+
+        resultDiv.innerHTML = `<b>Ответ:</b><br>${response.answer.replace(/\n/g, "<br>")}`;
       });
-    }, 150);
+    }, 100);
   };
 
-  panel.querySelector("#reset").onclick = () => {
-    chrome.storage.local.remove("geminiKey", () => {
-      work.style.display = "none";
-      setup.style.display = "block";
-      result.innerText = "";
-    });
-  };
-
-  panel.querySelector("#gemini-close").onclick = togglePanel;
-
-  // Drag
-  let drag = false, sx, sy, sl, st;
-  const header = panel.querySelector("#gemini-header");
+  // --- Drag & Drop ---
+  let drag = false;
+  let sx = 0, sy = 0, startLeft = 0, startTop = 0;
 
   header.onmousedown = (e) => {
     drag = true;
     sx = e.clientX;
     sy = e.clientY;
-    sl = panel.offsetLeft;
-    st = panel.offsetTop;
-    e.preventDefault();
+    startLeft = panel.offsetLeft;
+    startTop = panel.offsetTop;
   };
 
   document.onmousemove = (e) => {
     if (drag) {
-      panel.style.left = sl + (e.clientX - sx) + "px";
-      panel.style.top = st + (e.clientY - sy) + "px";
+      const dx = e.clientX - sx;
+      const dy = e.clientY - sy;
+      panel.style.left = startLeft + dx + "px";
+      panel.style.top = startTop + dy + "px";
       panel.style.right = "auto";
     }
   };
@@ -127,6 +147,6 @@ function createPanel() {
 }
 
 function togglePanel() {
-  if (!panel) return;
-  panel.style.display = panel.style.display === "none" ? "block" : "none";
+  panel.style.display =
+    panel.style.display === "none" ? "block" : "none";
 }
