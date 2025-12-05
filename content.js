@@ -1,6 +1,6 @@
 // content.js
 // =========================
-// GEMINI SOLVER 2.2.0 PANEL checkout
+// GEMINI SOLVER 2.2.0 PANEL (v2.3.0 Fixed)
 // =========================
 
 let panel = null;

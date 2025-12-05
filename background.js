@@ -1,130 +1,114 @@
 // background.js
-// =========================
-// GEMINI SOLVER 2.2.0 checkout
-// =========================
+// -----------------------------------------
+// Gemini Solver — Background (v2.3.0 Fixed)
+// -----------------------------------------
 
-// Клик по иконке → открыть/закрыть панель
 chrome.action.onClicked.addListener((tab) => {
   chrome.tabs.sendMessage(tab.id, { action: "TOGGLE_PANEL" });
 });
 
-// Основной обработчик запросов
-chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
-  if (req.action === "CAPTURE_AND_SOLVE") {
-    
-    // --- ШАГ 1. Сбор текста с фреймов и shadow-root ---
-    chrome.scripting.executeScript({
-      target: { tabId: sender.tab.id, allFrames: true },
-      func: extractDeepText
-    }, (results) => {
-
-      if (!results || chrome.runtime.lastError) {
-        sendResponse({ error: "Не удалось прочитать DOM: " + chrome.runtime.lastError?.message });
-        return;
-      }
-
-      // Склеиваем все фреймы с ID
-      let fullPageText = "";
-      results.forEach((frame, i) => {
-        fullPageText += `\n\n----- FRAME ${i + 1} START -----\n`;
-        fullPageText += frame.result || "";
-        fullPageText += `\n----- FRAME ${i + 1} END -----\n`;
-      });
-
-      if (fullPageText.length > 200000) {
-        fullPageText = fullPageText.substring(0, 200000);
-      }
-
-      // --- ШАГ 2. Делаем скриншот ---
-      chrome.tabs.captureVisibleTab(null, { format: "png" }, (dataUrl) => {
-        if (chrome.runtime.lastError || !dataUrl) {
-          sendResponse({ error: "Ошибка скриншота: " + chrome.runtime.lastError?.message });
-          return;
-        }
-
-        // --- ШАГ 3. Отправляем в Gemini ---
-        chrome.storage.local.get(["geminiKey"], async (conf) => {
-          if (!conf.geminiKey) {
-            sendResponse({ error: "Введите API ключ в панели" });
-            return;
-          }
-
-          try {
-            const answer = await askGemini(conf.geminiKey, dataUrl, fullPageText);
-            sendResponse({ answer });
-          } catch (e) {
-            sendResponse({ error: e.message });
-          }
-        });
-      });
-    });
-
-    return true; // async response
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "CAPTURE_AND_SOLVE") {
+    processRequest(sender.tab, sendResponse);
+    return true; // Важно для асинхронности
   }
 });
 
-
-// =========================================================
-//  DOM Extractor 2.2.0 — Shadow DOM + Iframe-safe extractor
-// =========================================================
-function extractDeepText() {
-
-  function getText(node) {
-    let out = "";
-
-    if (!node) return "";
-
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent.replace(/\s+/g, " ").trim();
-      if (text.length > 0) out += text + " ";
-    }
-
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      // Если ShadowRoot
-      if (node.shadowRoot) {
-        out += getText(node.shadowRoot);
-      }
-    }
-
-    // Рекурсивный обход
-    let child = node.firstChild;
-    while (child) {
-      out += getText(child);
-      child = child.nextSibling;
-    }
-    return out;
-  }
-
-  let text = "";
-
+async function processRequest(tab, sendResponse) {
   try {
-    text += getText(document.body);
-  } catch (e) {}
+    // 1. ИЗВЛЕЧЕНИЕ ТЕКСТА (С поддержкой Shadow DOM для Cisco)
+    const injectionResults = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      func: getDeepText // Используем мощную функцию обхода
+    });
 
-  // Попытка обработать iframe, если они доступны
-  const iframes = document.querySelectorAll("iframe");
-  iframes.forEach((f, i) => {
-    try {
-      const doc = f.contentDocument;
-      if (doc) {
-        text += `\n[IFRAME #${i}]\n`;
-        text += getText(doc.body);
-      }
-    } catch (e) {
-      // CORS → пропускаем
+    let fullPageText = "";
+    if (injectionResults) {
+      fullPageText = injectionResults
+        .map(frame => {
+          if (!frame.result || frame.result.trim().length < 5) return null;
+          return `=== FRAME (${frame.frameId}) ===\n${frame.result}`;
+        })
+        .filter(t => t !== null)
+        .join("\n\n");
     }
-  });
 
-  return text;
+    if (!fullPageText) fullPageText = "Текст страницы не найден (возможно, Canvas).";
+    if (fullPageText.length > 90000) fullPageText = fullPageText.substring(0, 90000);
+
+    // 2. СКРИНШОТ
+    const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: "png" });
+
+    // 3. ЗАПРОС К GEMINI
+    const storage = await chrome.storage.local.get(['geminiKey']);
+    if (!storage.geminiKey) {
+      sendResponse({ error: "Введите API Key в настройках панели!" });
+      return;
+    }
+
+    const answer = await askGemini(storage.geminiKey, dataUrl, fullPageText);
+    sendResponse({ answer });
+
+  } catch (err) {
+    console.error(err);
+    sendResponse({ error: err.message });
+  }
 }
 
+// === Функция для внедрения в страницу (Cisco NetAcad Fix) ===
+function getDeepText() {
+  function traverse(node) {
+    let text = "";
+    
+    // Пропускаем мусор
+    const tag = node.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return "";
 
-// =========================================================
-// Gemini Request 2.2.0
-// =========================================================
-async function askGemini(apiKey, base64, text) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  const clean = base64.split(",")[1];
+    // Текстовые узлы
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent.trim() + " ";
+    }
+
+    // Shadow DOM (Главное для Cisco!)
+    if (node.shadowRoot) {
+      text += traverse(node.shadowRoot);
+    }
+
+    // Рекурсия по детям
+    if (node.childNodes && node.childNodes.length > 0) {
+      node.childNodes.forEach(child => text += traverse(child));
+    }
+    
+    // Обработка слотов
+    if (tag === 'SLOT') {
+      node.assignedNodes().forEach(n => text += traverse(n));
+    }
+
+    // Добавляем переносы строк для блочных элементов, чтобы текст не слипался
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const style = window.getComputedStyle(node);
+      if (style.display === 'block' || style.display === 'flex' || tag === 'TR' || tag === 'LI') {
+        text += "\n";
+      }
+    }
+
+    return text;
+  }
+  return traverse(document.body);
+}
+
+// === Логика Gemini с перебором актуальных моделей ===
+async function askGemini(apiKey, base64Image, pageText) {
+  // АКТУАЛЬНЫЕ МОДЕЛИ НА 2025 ГОД
+  // gemini-2.0-flash-exp — самая быстрая и умная (бесплатная бета)
+  // gemini-1.5-flash — стабильный фолбэк
+  const MODELS = [
+    { name: "gemini-flash-latest", timeout: 15000 },
+    { name: "gemini-1.5-flash", timeout: 15000 },
+    { name: "gemini-2.5-pro", timeout: 20000 }
+  ];
+
+  const cleanBase64 = base64Image.split(',')[1];
 
   const prompt = `
 Ты эксперт по экзаменам и IT-квестам.
@@ -139,39 +123,65 @@ async function askGemini(apiKey, base64, text) {
     3. Игнорируй элементы интерфейса (меню, футеры, кнопки навигации).
     
     ФОРМАТ ОТВЕТА:
+    - Сам вопрос не включай в ответ.
     - Если это Matching (Сопоставление): Напиши пары "Характеристика -> Протокол/Понятие".
     - Если выбор ответа: Напиши только правильный ответ(ы).
     - Если Drag & Drop: Напиши, какой элемент куда перетащить.
+ 
     
     Дай краткое пояснение на русском (почему этот ответ верен).
 
     ПОЛНЫЙ ТЕКСТ СТРАНИЦЫ:
-${text}
-`;
+  ${pageText}
+  `;
 
-  const payload = {
-    contents: [{
-      parts: [
-        { text: prompt },
-        { inline_data: {
-            mime_type: "image/png",
-            data: clean
-        }}
-      ]
-    }]
+  // Функция таймаута
+  const fetchWithTimeout = (url, opts, ms) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), ms);
+    return fetch(url, { ...opts, signal: controller.signal })
+      .finally(() => clearTimeout(id));
   };
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  let lastError = "";
 
-  const data = await res.json();
+  for (const m of MODELS) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m.name}:generateContent?key=${apiKey}`;
+    
+    const payload = {
+      contents: [{
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: "image/png", data: cleanBase64 } }
+        ]
+      }]
+    };
 
-  if (data.error) throw new Error(data.error.message);
-  if (!data.candidates?.[0]?.content?.parts?.[0]?.text)
-    throw new Error("Gemini вернул пустой ответ");
+    try {
+      console.log(`Trying model: ${m.name}...`);
+      const response = await fetchWithTimeout(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }, m.timeout);
 
-  return data.candidates[0].content.parts[0].text;
+      const data = await response.json();
+
+      if (data.error) {
+        console.warn(`${m.name} error:`, data.error.message);
+        lastError = data.error.message;
+        continue; // Пробуем следующую модель
+      }
+
+      if (data.candidates && data.candidates[0].content) {
+        return data.candidates[0].content.parts[0].text; // УСПЕХ!
+      }
+
+    } catch (e) {
+      console.warn(`${m.name} exception:`, e.message);
+      lastError = e.message;
+    }
+  }
+
+  throw new Error(`Все модели недоступны. Последняя ошибка: ${lastError}`);
 }
