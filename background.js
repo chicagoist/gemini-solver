@@ -1,8 +1,7 @@
 // background.js
 // -----------------------------------------
-// Gemini Solver — Background (v2.3.0 Fixed)
+// Gemini Solver — Background (v2.3.1 Fixed)
 // -----------------------------------------
-
 
 chrome.action.onClicked.addListener((tab) => {
   chrome.tabs.sendMessage(tab.id, { action: "TOGGLE_PANEL" });
@@ -85,7 +84,7 @@ function getDeepText() {
       node.assignedNodes().forEach(n => text += traverse(n));
     }
 
-    // Добавляем переносы строк для блочных элементов, чтобы текст не слипался
+    // Добавляем переносы строк для блочных элементов
     if (node.nodeType === Node.ELEMENT_NODE) {
       const style = window.getComputedStyle(node);
       if (style.display === 'block' || style.display === 'flex' || tag === 'TR' || tag === 'LI') {
@@ -100,13 +99,11 @@ function getDeepText() {
 
 // === Логика Gemini с перебором актуальных моделей ===
 async function askGemini(apiKey, base64Image, pageText) {
-  // АКТУАЛЬНЫЕ МОДЕЛИ НА 2025 ГОД
-  // gemini-2.0-flash-exp — самая быстрая и умная (бесплатная бета)
-  // gemini-1.5-flash — стабильный фолбэк
+  // АКТУАЛЬНЫЕ МОДЕЛИ НА 2025 ГОД (2.5 еще не существует!)
   const MODELS = [
-    { name: "gemini-flash-latest", timeout: 15000 },
-    { name: "gemini-1.5-flash", timeout: 15000 },
-    { name: "gemini-2.5-pro", timeout: 20000 }
+    { name: "gemini-2.0-flash-exp", timeout: 20000 }, // Самая умная экспериментальная
+    { name: "gemini-1.5-flash", timeout: 15000 },     // Самая быстрая стабильная
+    { name: "gemini-2.5-pro", timeout: 25000 }       // Резервная мощная
   ];
 
   const cleanBase64 = base64Image.split(',')[1];
@@ -133,7 +130,7 @@ async function askGemini(apiKey, base64Image, pageText) {
     Дай краткое пояснение на русском (почему этот ответ верен).
 
     ПОЛНЫЙ ТЕКСТ СТРАНИЦЫ:
-  ${pageText}
+    ${pageText}
   `;
 
   // Функция таймаута
@@ -152,7 +149,7 @@ async function askGemini(apiKey, base64Image, pageText) {
     const payload = {
       contents: [{
         parts: [
-          { text: prompt },
+          { text: promptText }, // <--- ЗДЕСЬ БЫЛА ОШИБКА (было 'prompt')
           { inline_data: { mime_type: "image/png", data: cleanBase64 } }
         ]
       }]
@@ -171,11 +168,11 @@ async function askGemini(apiKey, base64Image, pageText) {
       if (data.error) {
         console.warn(`${m.name} error:`, data.error.message);
         lastError = data.error.message;
-        continue; // Пробуем следующую модель
+        continue; 
       }
 
       if (data.candidates && data.candidates[0].content) {
-        return data.candidates[0].content.parts[0].text; // УСПЕХ!
+        return data.candidates[0].content.parts[0].text; 
       }
 
     } catch (e) {

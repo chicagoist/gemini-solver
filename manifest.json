@@ -36,7 +36,6 @@
     }
   ],
 
-
   "browser_specific_settings": {
     "gecko": {
       "id": "gemini-solver@local-dev",

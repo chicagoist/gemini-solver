@@ -1,6 +1,6 @@
 // content.js
 // =========================
-// GEMINI SOLVER 2.3.0 PANEL (v2.3.0 Fixed)
+// GEMINI SOLVER 2.3.1 PANEL (v2.3.1 Fixed)
 // =========================
 
 let panel = null;
