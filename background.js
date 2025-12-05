@@ -1,6 +1,6 @@
 // background.js
 // -----------------------------------------
-// Gemini Solver — Background (v2.4.0 Audio)
+// Gemini Solver — Background (v2.5.0 Model Fix)
 // -----------------------------------------
 
 chrome.action.onClicked.addListener((tab) => {
@@ -8,13 +8,10 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // === СЦЕНАРИЙ 1: СКРИНШОТ ===
   if (request.action === "CAPTURE_AND_SOLVE") {
     processVisualRequest(sender.tab, sendResponse);
     return true; 
   }
-  
-  // === СЦЕНАРИЙ 2: АУДИО ===
   if (request.action === "AUDIO_SOLVE") {
     processAudioRequest(request.audioData, sendResponse);
     return true;
@@ -46,12 +43,15 @@ async function processVisualRequest(tab, sendResponse) {
       return;
     }
 
-    const answer = await askGemini(storage.geminiKey, {
+    // ВАЖНО: Получаем ОБЪЕКТ result
+    const result = await askGemini(storage.geminiKey, {
       type: 'image',
       image: dataUrl,
       text: fullPageText
     });
-    sendResponse({ answer });
+    
+    // ВАЖНО: Передаем и ответ, и модель
+    sendResponse({ answer: result.text, model: result.model });
 
   } catch (err) {
     sendResponse({ error: err.message });
@@ -67,11 +67,14 @@ async function processAudioRequest(base64Audio, sendResponse) {
       return;
     }
 
-    const answer = await askGemini(storage.geminiKey, {
+    // ВАЖНО: Получаем ОБЪЕКТ result
+    const result = await askGemini(storage.geminiKey, {
       type: 'audio',
       audio: base64Audio
     });
-    sendResponse({ answer });
+    
+    // ВАЖНО: Передаем и ответ, и модель
+    sendResponse({ answer: result.text, model: result.model });
   } catch (err) {
     sendResponse({ error: err.message });
   }
@@ -81,13 +84,12 @@ async function processAudioRequest(base64Audio, sendResponse) {
 async function askGemini(apiKey, inputData) {
   const MODELS = [
     { name: "gemini-2.5-flash", timeout: 15000 },     // Самая быстрая стабильная
-    { name: "gemini-2.5-pro", timeout: 25000 }       // Резервная мощная     
+    { name: "gemini-2.5-pro", timeout: 25000 }       // Резервная мощная
   ];
 
   let contents = [];
 
   if (inputData.type === 'image') {
-    // Формируем payload для картинки + текста
     const cleanImage = inputData.image.split(',')[1];
     contents = [{
       parts: [
@@ -110,24 +112,21 @@ async function askGemini(apiKey, inputData) {
  
     
     Дай краткое пояснение на русском (почему этот ответ верен).
-
-    ПОЛНЫЙ ТЕКСТ СТРАНИЦЫ:
-          ${inputData.text || "Нет текста"}
+ПОЛНЫЙ ТЕКСТ СТРАНИЦЫ: ${inputData.text || "Нет текста"}
         `},
         { inline_data: { mime_type: "image/png", data: cleanImage } }
       ]
     }];
   } else if (inputData.type === 'audio') {
-    // Формируем payload для аудио
-    // inputData.audio приходит в формате "data:audio/webm;base64,..."
     const cleanAudio = inputData.audio.split(',')[1];
-    
-    // Важно: Gemini принимает audio/webm или audio/mp3. Мы шлем webm (стандарт браузера).
     contents = [{
       parts: [
         { text: `
-          Послушай этот вопрос (он может быть на немецком,английском или русском). 
-          Ты эксперт по экзаменам и IT-квестам(Cisco,DevOps,Networking,Linux,Windows,Java,Perl).
+          Послушай эту аудиозапись. (она может быть на немецком,английском или русском). 
+
+          1. Если в аудио ТИШИНА, ШУМ или НЕРАЗБОРЧИВАЯ РЕЧЬ — ответь ровно одну фразу: "Я ничего не услышал 🙉".
+
+          2. Если слышен четкий вопро: тогда ты эксперт по экзаменам и IT-квестам(Cisco,DevOps,Networking,Linux,Windows,Java,Perl).
           Дай правильный ответ текстом на русском языке. 
           Дай краткое пояснение на русском (почему этот ответ верен).
           ` },
@@ -136,7 +135,6 @@ async function askGemini(apiKey, inputData) {
     }];
   }
 
-  // Запрос с перебором моделей
   let lastError = "";
   for (const m of MODELS) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m.name}:generateContent?key=${apiKey}`;
@@ -159,17 +157,21 @@ async function askGemini(apiKey, inputData) {
         continue;
       }
       if (data.candidates && data.candidates[0].content) {
-        return data.candidates[0].content.parts[0].text;
+        // !!! САМОЕ ВАЖНОЕ ИЗМЕНЕНИЕ !!!
+        // Возвращаем объект, чтобы сохранить имя модели
+        return {
+          text: data.candidates[0].content.parts[0].text,
+          model: m.name 
+        };
       }
     } catch (e) {
       lastError = e.message;
     }
   }
 
-  throw new Error(`Ошибка Gemini: ${lastError}`);
+  throw new Error(`Все модели недоступны. Ошибка: ${lastError}`);
 }
 
-// Хелпер для текста (тот же, что и был)
 function getDeepText() {
   function traverse(n) {
     if (['SCRIPT','STYLE'].includes(n.tagName)) return "";

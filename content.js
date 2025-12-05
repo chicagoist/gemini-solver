@@ -1,6 +1,6 @@
 // content.js
 // =========================
-// GEMINI SOLVER 2.4.0 (Voice Edition)
+// GEMINI SOLVER 2.4.2 (Model Display Fix)
 // =========================
 
 let panel = null;
@@ -36,7 +36,7 @@ function createPanel() {
     overflow: hidden;
   `;
 
-  // HTML Шаблон
+  // HTML
   const htmlTemplate = `
     <div id="gemini-header" style="background:#007bff; color:#fff; padding:10px 14px; cursor:move; font-weight:600; display: flex; justify-content: space-between; align-items: center;">
       <span>Gemini Solver</span>
@@ -50,24 +50,14 @@ function createPanel() {
       </div>
 
       <div id="gemini-work" style="display:none;">
-        
         <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-          <!-- Кнопка Скриншота -->
-          <button id="gemini-solve" style="flex: 1; padding:10px; background:#007bff; color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
-             📸 Экран
-          </button>
-          
-          <!-- Кнопка Микрофона -->
-          <button id="gemini-mic" style="flex: 1; padding:10px; background:#6c757d; color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
-             🎙️ Голос
-          </button>
+          <button id="gemini-solve" style="flex: 1; padding:10px; background:#007bff; color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">📸 Экран</button>
+          <button id="gemini-mic" style="flex: 1; padding:10px; background:#6c757d; color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">🎙️ Голос</button>
         </div>
 
         <div id="gemini-result" style="padding:10px; background:#f7f7f7; border-radius:6px; border:1px solid #eee; max-height:420px; overflow-y:auto; font-size: 14px; white-space: pre-wrap;">Выберите действие...</div>
 
-        <button id="gemini-reset" style="margin-top:6px; font-size:12px; color:#777; background:none; border:none; text-decoration:underline; cursor:pointer; width: 100%; text-align: right;">
-          Сброс ключа
-        </button>
+        <button id="gemini-reset" style="margin-top:6px; font-size:12px; color:#777; background:none; border:none; text-decoration:underline; cursor:pointer; width: 100%; text-align: right;">Сброс ключа</button>
       </div>
     </div>
   `;
@@ -78,7 +68,6 @@ function createPanel() {
 
   document.body.appendChild(panel);
 
-  // Элементы
   const closeBtn = panel.querySelector("#gemini-close");
   const saveBtn = panel.querySelector("#gemini-save");
   const solveBtn = panel.querySelector("#gemini-solve");
@@ -89,7 +78,6 @@ function createPanel() {
   const workDiv = panel.querySelector("#gemini-work");
   const resultDiv = panel.querySelector("#gemini-result");
 
-  // Восстановление ключа
   chrome.storage.local.get(["geminiKey"], (res) => {
     if (res.geminiKey) {
       setupDiv.style.display = "none";
@@ -99,27 +87,18 @@ function createPanel() {
 
   saveBtn.onclick = () => {
     const k = keyInput.value.trim();
-    if (k) {
-      chrome.storage.local.set({ geminiKey: k }, () => {
-        setupDiv.style.display = "none";
-        workDiv.style.display = "block";
-      });
-    }
+    if (k) chrome.storage.local.set({ geminiKey: k }, () => { setupDiv.style.display = "none"; workDiv.style.display = "block"; });
   };
 
   resetBtn.onclick = () => {
-    chrome.storage.local.remove("geminiKey", () => {
-      setupDiv.style.display = "block";
-      workDiv.style.display = "none";
-      resultDiv.innerText = "Вставьте ключ...";
-    });
+    chrome.storage.local.remove("geminiKey", () => { setupDiv.style.display = "block"; workDiv.style.display = "none"; resultDiv.innerText = "Вставьте ключ..."; });
   };
 
   closeBtn.onclick = togglePanel;
 
-  // === ЛОГИКА 1: СКРИНШОТ ===
+  // ЛОГИКА
   solveBtn.onclick = () => {
-    if (isRecording) stopRecording(false); // Отмена записи если нажали скрин
+    if (isRecording) stopRecording(false);
     resultDiv.innerText = "⏳ Анализирую экран...";
     resultDiv.style.color = "#333";
     panel.style.display = "none";
@@ -132,16 +111,12 @@ function createPanel() {
     }, 150);
   };
 
-  // === ЛОГИКА 2: ГОЛОС ===
   micBtn.onclick = async () => {
-    if (!isRecording) {
-      startRecording(micBtn, resultDiv);
-    } else {
-      stopRecording(true, micBtn, resultDiv);
-    }
+    if (!isRecording) startRecording(micBtn, resultDiv);
+    else stopRecording(true, micBtn, resultDiv);
   };
 
-  // --- Drag & Drop ---
+  // Drag & Drop
   let drag = false, sx = 0, sy = 0, startLeft = 0, startTop = 0;
   const header = panel.querySelector("#gemini-header");
   header.onmousedown = (e) => { drag = true; sx = e.clientX; sy = e.clientY; startLeft = panel.offsetLeft; startTop = panel.offsetTop; };
@@ -149,73 +124,48 @@ function createPanel() {
   document.onmouseup = () => drag = false;
 }
 
-// === ФУНКЦИИ ЗАПИСИ АУДИО ===
+// AUDIO
 async function startRecording(btn, resultDiv) {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder = new MediaRecorder(stream);
     audioChunks = [];
-
-    mediaRecorder.ondataavailable = (event) => {
-      audioChunks.push(event.data);
-    };
-
+    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
     mediaRecorder.onstop = () => {
-      // Когда запись остановлена — собираем Blob
       const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-      processAudio(audioBlob, resultDiv);
-      
-      // Останавливаем потоки (чтобы убрать красную точку в браузере)
       stream.getTracks().forEach(track => track.stop());
+      processAudio(audioBlob, resultDiv);
     };
-
     mediaRecorder.start();
     isRecording = true;
-    
-    // Визуал: Красная кнопка
     btn.style.background = "#dc3545";
     btn.innerHTML = "⏹ Стоп";
     resultDiv.innerText = "🎙️ Говорите... (Нажмите Стоп для отправки)";
-    
   } catch (err) {
-    console.error(err);
-    resultDiv.innerText = "Ошибка доступа к микрофону: " + err.message;
+    resultDiv.innerText = "Ошибка микрофона: " + err.message;
     resultDiv.style.color = "red";
   }
 }
 
 function stopRecording(shouldProcess, btn, resultDiv) {
-  if (mediaRecorder && mediaRecorder.state !== "inactive") {
-    mediaRecorder.stop(); // Это вызовет onstop
-  }
+  if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
   isRecording = false;
-  
-  if (btn) {
-    btn.style.background = "#6c757d";
-    btn.innerHTML = "🎙️ Голос";
-  }
+  if (btn) { btn.style.background = "#6c757d"; btn.innerHTML = "🎙️ Голос"; }
 }
 
 function processAudio(blob, resultDiv) {
-  resultDiv.innerText = "⏳ Отправляю аудио в Gemini...";
-  
+  resultDiv.innerText = "⏳ Отправляю аудио...";
   const reader = new FileReader();
   reader.readAsDataURL(blob);
   reader.onloadend = () => {
-    const base64Audio = reader.result; // data:audio/webm;base64,....
-    
-    chrome.runtime.sendMessage({ 
-      action: "AUDIO_SOLVE",
-      audioData: base64Audio
-    }, (response) => {
-      handleResponse(response, resultDiv);
-    });
+    chrome.runtime.sendMessage({ action: "AUDIO_SOLVE", audioData: reader.result }, (response) => handleResponse(response, resultDiv));
   };
 }
 
+// ОТРИСОВКА ОТВЕТА
 function handleResponse(response, div) {
   if (!response) {
-    div.innerText = "Ошибка: нет ответа от background.";
+    div.innerText = "Ошибка: нет ответа.";
     div.style.color = "red";
     return;
   }
@@ -224,8 +174,34 @@ function handleResponse(response, div) {
     div.style.color = "red";
     return;
   }
+
+  // Сброс контента
+  div.innerText = "";
   div.style.color = "#000";
-  div.innerText = `Ответ:\n${response.answer}`;
+
+  // 1. Сам ответ
+  const textNode = document.createTextNode(`Ответ:\n${response.answer}`);
+  div.appendChild(textNode);
+
+  // 2. Имя модели (Если оно пришло, рисуем его внизу)
+  if (response.model) {
+    const modelBadge = document.createElement("div");
+    modelBadge.style.cssText = `
+      margin-top: 20px;
+      padding-top: 10px;
+      border-top: 1px solid #ccc;
+      font-size: 11px;
+      color: #777;
+      text-align: right;
+      font-family: monospace;
+      font-style: italic;
+    `;
+    modelBadge.innerText = `⚡ Model: ${response.model}`;
+    div.appendChild(modelBadge);
+  } else {
+    // Для отладки, если модели нет
+    console.warn("Model name is missing in response");
+  }
 }
 
 function togglePanel() {
