@@ -1,6 +1,6 @@
 // background.js
 // -----------------------------------------
-// Gemini Solver — Background (v2.3.2 Fixed)
+// Gemini Solver — Background (v2.4.0 Audio)
 // -----------------------------------------
 
 chrome.action.onClicked.addListener((tab) => {
@@ -8,108 +8,91 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // === СЦЕНАРИЙ 1: СКРИНШОТ ===
   if (request.action === "CAPTURE_AND_SOLVE") {
-    processRequest(sender.tab, sendResponse);
-    return true; // Важно для асинхронности
+    processVisualRequest(sender.tab, sendResponse);
+    return true; 
+  }
+  
+  // === СЦЕНАРИЙ 2: АУДИО ===
+  if (request.action === "AUDIO_SOLVE") {
+    processAudioRequest(request.audioData, sendResponse);
+    return true;
   }
 });
 
-async function processRequest(tab, sendResponse) {
+// --- Обработка скрина ---
+async function processVisualRequest(tab, sendResponse) {
   try {
-    // 1. ИЗВЛЕЧЕНИЕ ТЕКСТА (С поддержкой Shadow DOM для Cisco)
     const injectionResults = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
-      func: getDeepText // Используем мощную функцию обхода
+      func: getDeepText
     });
 
     let fullPageText = "";
     if (injectionResults) {
       fullPageText = injectionResults
-        .map(frame => {
-          if (!frame.result || frame.result.trim().length < 5) return null;
-          return `=== FRAME (${frame.frameId}) ===\n${frame.result}`;
-        })
+        .map(frame => frame.result && frame.result.trim().length > 5 ? `=== FRAME ===\n${frame.result}` : null)
         .filter(t => t !== null)
         .join("\n\n");
     }
-
-    if (!fullPageText) fullPageText = "Текст страницы не найден (возможно, Canvas).";
     if (fullPageText.length > 90000) fullPageText = fullPageText.substring(0, 90000);
 
-    // 2. СКРИНШОТ
     const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: "png" });
 
-    // 3. ЗАПРОС К GEMINI
     const storage = await chrome.storage.local.get(['geminiKey']);
     if (!storage.geminiKey) {
-      sendResponse({ error: "Введите API Key в настройках панели!" });
+      sendResponse({ error: "Введите API Key!" });
       return;
     }
 
-    const answer = await askGemini(storage.geminiKey, dataUrl, fullPageText);
+    const answer = await askGemini(storage.geminiKey, {
+      type: 'image',
+      image: dataUrl,
+      text: fullPageText
+    });
     sendResponse({ answer });
 
   } catch (err) {
-    console.error(err);
     sendResponse({ error: err.message });
   }
 }
 
-// === Функция для внедрения в страницу (Cisco NetAcad Fix) ===
-function getDeepText() {
-  function traverse(node) {
-    let text = "";
-    
-    // Пропускаем мусор
-    const tag = node.tagName;
-    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return "";
-
-    // Текстовые узлы
-    if (node.nodeType === Node.TEXT_NODE) {
-      return node.textContent.trim() + " ";
+// --- Обработка аудио ---
+async function processAudioRequest(base64Audio, sendResponse) {
+  try {
+    const storage = await chrome.storage.local.get(['geminiKey']);
+    if (!storage.geminiKey) {
+      sendResponse({ error: "Введите API Key!" });
+      return;
     }
 
-    // Shadow DOM (Главное для Cisco!)
-    if (node.shadowRoot) {
-      text += traverse(node.shadowRoot);
-    }
-
-    // Рекурсия по детям
-    if (node.childNodes && node.childNodes.length > 0) {
-      node.childNodes.forEach(child => text += traverse(child));
-    }
-    
-    // Обработка слотов
-    if (tag === 'SLOT') {
-      node.assignedNodes().forEach(n => text += traverse(n));
-    }
-
-    // Добавляем переносы строк для блочных элементов
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      const style = window.getComputedStyle(node);
-      if (style.display === 'block' || style.display === 'flex' || tag === 'TR' || tag === 'LI') {
-        text += "\n";
-      }
-    }
-
-    return text;
+    const answer = await askGemini(storage.geminiKey, {
+      type: 'audio',
+      audio: base64Audio
+    });
+    sendResponse({ answer });
+  } catch (err) {
+    sendResponse({ error: err.message });
   }
-  return traverse(document.body);
 }
 
-// === Логика Gemini с перебором актуальных моделей ===
-async function askGemini(apiKey, base64Image, pageText) {
-  // АКТУАЛЬНЫЕ МОДЕЛИ НА 2025 ГОД (2.5 еще не существует!)
+// --- Универсальная функция запроса к Gemini ---
+async function askGemini(apiKey, inputData) {
   const MODELS = [
-    { name: "gemini-2.0-flash-exp", timeout: 20000 }, // Самая умная экспериментальная
-    { name: "gemini-1.5-flash", timeout: 15000 },     // Самая быстрая стабильная
-    { name: "gemini-2.5-pro", timeout: 25000 }       // Резервная мощная
+    { name: "gemini-2.5-flash", timeout: 15000 },     // Самая быстрая стабильная
+    { name: "gemini-2.5-pro", timeout: 25000 }       // Резервная мощная     
   ];
 
-  const cleanBase64 = base64Image.split(',')[1];
+  let contents = [];
 
-  const promptText = `
-Ты эксперт по экзаменам и IT-квестам.
+  if (inputData.type === 'image') {
+    // Формируем payload для картинки + текста
+    const cleanImage = inputData.image.split(',')[1];
+    contents = [{
+      parts: [
+        { text: `
+Ты эксперт по экзаменам и IT-квестам(Cisco,DevOps,Networking,Linux,Windows,Java,Perl).
 
     ВХОДНЫЕ ДАННЫЕ:
     1. ИЗОБРАЖЕНИЕ: Скриншот ВИДИМОЙ части экрана. Может быть обрезан снизу/сверху. Используй его для понимания типа вопроса (Drag&Drop, Matching, схемы).
@@ -129,56 +112,72 @@ async function askGemini(apiKey, base64Image, pageText) {
     Дай краткое пояснение на русском (почему этот ответ верен).
 
     ПОЛНЫЙ ТЕКСТ СТРАНИЦЫ:
-    ${pageText}
-  `;
+          ${inputData.text || "Нет текста"}
+        `},
+        { inline_data: { mime_type: "image/png", data: cleanImage } }
+      ]
+    }];
+  } else if (inputData.type === 'audio') {
+    // Формируем payload для аудио
+    // inputData.audio приходит в формате "data:audio/webm;base64,..."
+    const cleanAudio = inputData.audio.split(',')[1];
+    
+    // Важно: Gemini принимает audio/webm или audio/mp3. Мы шлем webm (стандарт браузера).
+    contents = [{
+      parts: [
+        { text: `
+          Послушай этот вопрос (он может быть на немецком,английском или русском). 
+          Ты эксперт по экзаменам и IT-квестам(Cisco,DevOps,Networking,Linux,Windows,Java,Perl).
+          Дай правильный ответ текстом на русском языке. 
+          Дай краткое пояснение на русском (почему этот ответ верен).
+          ` },
+        { inline_data: { mime_type: "audio/webm", data: cleanAudio } }
+      ]
+    }];
+  }
 
-  // Функция таймаута
-  const fetchWithTimeout = (url, opts, ms) => {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), ms);
-    return fetch(url, { ...opts, signal: controller.signal })
-      .finally(() => clearTimeout(id));
-  };
-
+  // Запрос с перебором моделей
   let lastError = "";
-
   for (const m of MODELS) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m.name}:generateContent?key=${apiKey}`;
     
-    const payload = {
-      contents: [{
-        parts: [
-          { text: promptText }, // <--- ЗДЕСЬ БЫЛА ОШИБКА (было 'prompt')
-          { inline_data: { mime_type: "image/png", data: cleanBase64 } }
-        ]
-      }]
-    };
-
     try {
-      console.log(`Trying model: ${m.name}...`);
-      const response = await fetchWithTimeout(url, {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), m.timeout);
+      
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      }, m.timeout);
+        body: JSON.stringify({ contents }),
+        signal: controller.signal
+      });
+      clearTimeout(id);
 
       const data = await response.json();
-
       if (data.error) {
-        console.warn(`${m.name} error:`, data.error.message);
         lastError = data.error.message;
-        continue; 
+        continue;
       }
-
       if (data.candidates && data.candidates[0].content) {
-        return data.candidates[0].content.parts[0].text; 
+        return data.candidates[0].content.parts[0].text;
       }
-
     } catch (e) {
-      console.warn(`${m.name} exception:`, e.message);
       lastError = e.message;
     }
   }
 
-  throw new Error(`Все модели недоступны. Последняя ошибка: ${lastError}`);
+  throw new Error(`Ошибка Gemini: ${lastError}`);
+}
+
+// Хелпер для текста (тот же, что и был)
+function getDeepText() {
+  function traverse(n) {
+    if (['SCRIPT','STYLE'].includes(n.tagName)) return "";
+    if (n.nodeType === 3) return n.textContent.trim() + " ";
+    if (n.shadowRoot) return traverse(n.shadowRoot);
+    let t = "";
+    if (n.childNodes) n.childNodes.forEach(c => t+=traverse(c));
+    return t;
+  }
+  return traverse(document.body);
 }

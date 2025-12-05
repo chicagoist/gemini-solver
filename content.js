@@ -1,9 +1,12 @@
 // content.js
 // =========================
-// GEMINI SOLVER 2.3.2 (Linter Safe)
+// GEMINI SOLVER 2.4.0 (Voice Edition)
 // =========================
 
 let panel = null;
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
 
 chrome.runtime.onMessage.addListener((request) => {
   if (request.action === "TOGGLE_PANEL") {
@@ -33,7 +36,7 @@ function createPanel() {
     overflow: hidden;
   `;
 
-  // HTML Шаблон (строка)
+  // HTML Шаблон
   const htmlTemplate = `
     <div id="gemini-header" style="background:#007bff; color:#fff; padding:10px 14px; cursor:move; font-weight:600; display: flex; justify-content: space-between; align-items: center;">
       <span>Gemini Solver</span>
@@ -47,11 +50,20 @@ function createPanel() {
       </div>
 
       <div id="gemini-work" style="display:none;">
-        <button id="gemini-solve" style="width:100%; padding:10px; background:#007bff; color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer;">
-          📸 Анализировать экран
-        </button>
+        
+        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+          <!-- Кнопка Скриншота -->
+          <button id="gemini-solve" style="flex: 1; padding:10px; background:#007bff; color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+             📸 Экран
+          </button>
+          
+          <!-- Кнопка Микрофона -->
+          <button id="gemini-mic" style="flex: 1; padding:10px; background:#6c757d; color:white; border:none; border-radius:6px; font-weight:600; cursor:pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+             🎙️ Голос
+          </button>
+        </div>
 
-        <div id="gemini-result" style="margin-top:12px; padding:10px; background:#f7f7f7; border-radius:6px; border:1px solid #eee; max-height:420px; overflow-y:auto; font-size: 14px; white-space: pre-wrap;">Нажмите кнопку...</div>
+        <div id="gemini-result" style="padding:10px; background:#f7f7f7; border-radius:6px; border:1px solid #eee; max-height:420px; overflow-y:auto; font-size: 14px; white-space: pre-wrap;">Выберите действие...</div>
 
         <button id="gemini-reset" style="margin-top:6px; font-size:12px; color:#777; background:none; border:none; text-decoration:underline; cursor:pointer; width: 100%; text-align: right;">
           Сброс ключа
@@ -60,30 +72,24 @@ function createPanel() {
     </div>
   `;
 
-  // БЕЗОПАСНЫЙ СПОСОБ СОЗДАНИЯ HTML (Через DOMParser)
-  // Это убирает ошибку "Unsafe assignment to innerHTML"
   const parser = new DOMParser();
   const doc = parser.parseFromString(htmlTemplate, 'text/html');
-  
-  // Переносим элементы из парсера в нашу панель
-  Array.from(doc.body.children).forEach(child => {
-    panel.appendChild(child);
-  });
+  Array.from(doc.body.children).forEach(child => panel.appendChild(child));
 
   document.body.appendChild(panel);
 
-  // Получаем ссылки на элементы
-  const header = panel.querySelector("#gemini-header");
+  // Элементы
   const closeBtn = panel.querySelector("#gemini-close");
   const saveBtn = panel.querySelector("#gemini-save");
   const solveBtn = panel.querySelector("#gemini-solve");
+  const micBtn = panel.querySelector("#gemini-mic");
   const resetBtn = panel.querySelector("#gemini-reset");
   const keyInput = panel.querySelector("#gemini-key");
   const setupDiv = panel.querySelector("#gemini-setup");
   const workDiv = panel.querySelector("#gemini-work");
   const resultDiv = panel.querySelector("#gemini-result");
 
-  // Восстанавливаем ключ
+  // Восстановление ключа
   chrome.storage.local.get(["geminiKey"], (res) => {
     if (res.geminiKey) {
       setupDiv.style.display = "none";
@@ -105,67 +111,121 @@ function createPanel() {
     chrome.storage.local.remove("geminiKey", () => {
       setupDiv.style.display = "block";
       workDiv.style.display = "none";
-      resultDiv.innerText = "Нажмите кнопку...";
+      resultDiv.innerText = "Вставьте ключ...";
     });
   };
 
   closeBtn.onclick = togglePanel;
 
-  // --- Логика анализа ---
+  // === ЛОГИКА 1: СКРИНШОТ ===
   solveBtn.onclick = () => {
-    resultDiv.innerText = "⏳ Анализ...";
+    if (isRecording) stopRecording(false); // Отмена записи если нажали скрин
+    resultDiv.innerText = "⏳ Анализирую экран...";
     resultDiv.style.color = "#333";
-
     panel.style.display = "none";
 
-    // Небольшая задержка, чтобы панель успела исчезнуть
     setTimeout(() => {
       chrome.runtime.sendMessage({ action: "CAPTURE_AND_SOLVE" }, (response) => {
         panel.style.display = "block";
-
-        if (!response) {
-          resultDiv.innerText = "Ошибка: нет ответа от background.";
-          resultDiv.style.color = "red";
-          return;
-        }
-
-        if (response.error) {
-          resultDiv.innerText = `Ошибка: ${response.error}`;
-          resultDiv.style.color = "red";
-          return;
-        }
-        
-        // Успех
-        resultDiv.style.color = "#000"; 
-        resultDiv.innerText = `Ответ:\n${response.answer}`;
+        handleResponse(response, resultDiv);
       });
     }, 150);
   };
 
-  // --- Drag & Drop ---
-  let drag = false;
-  let sx = 0, sy = 0, startLeft = 0, startTop = 0;
-
-  header.onmousedown = (e) => {
-    drag = true;
-    sx = e.clientX;
-    sy = e.clientY;
-    startLeft = panel.offsetLeft;
-    startTop = panel.offsetTop;
-  };
-
-  document.onmousemove = (e) => {
-    if (drag) {
-      e.preventDefault(); // Важно, чтобы текст не выделялся
-      const dx = e.clientX - sx;
-      const dy = e.clientY - sy;
-      panel.style.left = startLeft + dx + "px";
-      panel.style.top = startTop + dy + "px";
-      panel.style.right = "auto";
+  // === ЛОГИКА 2: ГОЛОС ===
+  micBtn.onclick = async () => {
+    if (!isRecording) {
+      startRecording(micBtn, resultDiv);
+    } else {
+      stopRecording(true, micBtn, resultDiv);
     }
   };
 
+  // --- Drag & Drop ---
+  let drag = false, sx = 0, sy = 0, startLeft = 0, startTop = 0;
+  const header = panel.querySelector("#gemini-header");
+  header.onmousedown = (e) => { drag = true; sx = e.clientX; sy = e.clientY; startLeft = panel.offsetLeft; startTop = panel.offsetTop; };
+  document.onmousemove = (e) => { if (drag) { e.preventDefault(); panel.style.left = (startLeft + e.clientX - sx) + "px"; panel.style.top = (startTop + e.clientY - sy) + "px"; } };
   document.onmouseup = () => drag = false;
+}
+
+// === ФУНКЦИИ ЗАПИСИ АУДИО ===
+async function startRecording(btn, resultDiv) {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+
+    mediaRecorder.ondataavailable = (event) => {
+      audioChunks.push(event.data);
+    };
+
+    mediaRecorder.onstop = () => {
+      // Когда запись остановлена — собираем Blob
+      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      processAudio(audioBlob, resultDiv);
+      
+      // Останавливаем потоки (чтобы убрать красную точку в браузере)
+      stream.getTracks().forEach(track => track.stop());
+    };
+
+    mediaRecorder.start();
+    isRecording = true;
+    
+    // Визуал: Красная кнопка
+    btn.style.background = "#dc3545";
+    btn.innerHTML = "⏹ Стоп";
+    resultDiv.innerText = "🎙️ Говорите... (Нажмите Стоп для отправки)";
+    
+  } catch (err) {
+    console.error(err);
+    resultDiv.innerText = "Ошибка доступа к микрофону: " + err.message;
+    resultDiv.style.color = "red";
+  }
+}
+
+function stopRecording(shouldProcess, btn, resultDiv) {
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    mediaRecorder.stop(); // Это вызовет onstop
+  }
+  isRecording = false;
+  
+  if (btn) {
+    btn.style.background = "#6c757d";
+    btn.innerHTML = "🎙️ Голос";
+  }
+}
+
+function processAudio(blob, resultDiv) {
+  resultDiv.innerText = "⏳ Отправляю аудио в Gemini...";
+  
+  const reader = new FileReader();
+  reader.readAsDataURL(blob);
+  reader.onloadend = () => {
+    const base64Audio = reader.result; // data:audio/webm;base64,....
+    
+    chrome.runtime.sendMessage({ 
+      action: "AUDIO_SOLVE",
+      audioData: base64Audio
+    }, (response) => {
+      handleResponse(response, resultDiv);
+    });
+  };
+}
+
+function handleResponse(response, div) {
+  if (!response) {
+    div.innerText = "Ошибка: нет ответа от background.";
+    div.style.color = "red";
+    return;
+  }
+  if (response.error) {
+    div.innerText = `Ошибка: ${response.error}`;
+    div.style.color = "red";
+    return;
+  }
+  div.style.color = "#000";
+  div.innerText = `Ответ:\n${response.answer}`;
 }
 
 function togglePanel() {
