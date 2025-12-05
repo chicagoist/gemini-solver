@@ -1,45 +1,54 @@
 {
   "manifest_version": 3,
   "name": "Gemini Exam Solver",
-  "version": "2.3.1",
-  "description": "Решает экзамены Cisco/IT по скриншоту и полному DOM-тексту",
+  "version": "2.3.2",
+  "description": "Решает тесты Cisco на экране с помощью Gemini (auto-model, fallback, timeout).",
   "author": "Valerii Dubkoff aka Chicagoist",
   "homepage_url": "https://github.com/chicagoist/gemini-solver",
-
   "permissions": [
     "activeTab",
     "scripting",
     "storage"
   ],
-
   "action": {
     "default_title": "Открыть панель",
     "default_icon": "icon.png"
   },
-
   "background": {
-    "scripts": ["background.js"],
-    "type": "module"
+    "scripts": [
+      "background.js"
+    ]
   },
-
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"]
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ]
     }
   ],
-
+  "host_permissions": [
+    "https://generativelanguage.googleapis.com/*"
+  ],
   "web_accessible_resources": [
     {
-      "resources": ["icon.png"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "icon.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ],
-
   "browser_specific_settings": {
     "gecko": {
-      "id": "gemini-solver@local-dev",
-      "strict_min_version": "109.0"
+      "id": "gemini-solver@chicagoist.github.io",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   }
 }

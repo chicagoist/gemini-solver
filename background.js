@@ -1,6 +1,6 @@
 // background.js
 // -----------------------------------------
-// Gemini Solver — Background (v2.3.1 Fixed)
+// Gemini Solver — Background (v2.3.2 Fixed)
 // -----------------------------------------
 
 chrome.action.onClicked.addListener((tab) => {
