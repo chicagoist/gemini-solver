@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Gemini Exam Solver",
-  "version": "2.2.0",
-  "description": "Решает тесты Cisco на экране с помощью Gemini (auto-model, fallback, timeout).",
+  "version": "2.3.0",
+  "description": "Решает экзамены Cisco/IT по скриншоту и полному DOM-тексту",
   "author": "Valerii Dubkoff aka Chicagoist",
   "homepage_url": "https://github.com/chicagoist/gemini-solver",
 
@@ -29,9 +29,13 @@
     }
   ],
 
-  "host_permissions": [
-    "https://generativelanguage.googleapis.com/*"
+  "web_accessible_resources": [
+    {
+      "resources": ["icon.png"],
+      "matches": ["<all_urls>"]
+    }
   ],
+
 
   "browser_specific_settings": {
     "gecko": {
