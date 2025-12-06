@@ -10,7 +10,7 @@ chrome.action.onClicked.addListener((tab) => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "CAPTURE_AND_SOLVE") {
     processVisualRequest(sender.tab, sendResponse);
-    return true; 
+    return true;
   }
   if (request.action === "AUDIO_SOLVE") {
     processAudioRequest(request.audioData, sendResponse);
@@ -49,7 +49,7 @@ async function processVisualRequest(tab, sendResponse) {
       image: dataUrl,
       text: fullPageText
     });
-    
+
     // ВАЖНО: Передаем и ответ, и модель
     sendResponse({ answer: result.text, model: result.model });
 
@@ -72,7 +72,7 @@ async function processAudioRequest(base64Audio, sendResponse) {
       type: 'audio',
       audio: base64Audio
     });
-    
+
     // ВАЖНО: Передаем и ответ, и модель
     sendResponse({ answer: result.text, model: result.model });
   } catch (err) {
@@ -93,7 +93,8 @@ async function askGemini(apiKey, inputData) {
     const cleanImage = inputData.image.split(',')[1];
     contents = [{
       parts: [
-        { text: `
+        {
+          text: `
 Ты эксперт по экзаменам и IT-квестам(Cisco,DevOps,Networking,Linux,Windows,Java,Perl).
 
     ВХОДНЫЕ ДАННЫЕ:
@@ -121,7 +122,8 @@ async function askGemini(apiKey, inputData) {
     const cleanAudio = inputData.audio.split(',')[1];
     contents = [{
       parts: [
-        { text: `
+        {
+          text: `
           Послушай эту аудиозапись. (она может быть на немецком,английском или русском). 
 
           1. Если в аудио ТИШИНА, ШУМ или НЕРАЗБОРЧИВАЯ РЕЧЬ — ответь ровно одну фразу: "Я ничего не услышал 🙉".
@@ -138,11 +140,11 @@ async function askGemini(apiKey, inputData) {
   let lastError = "";
   for (const m of MODELS) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m.name}:generateContent?key=${apiKey}`;
-    
+
     try {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), m.timeout);
-      
+
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -161,7 +163,7 @@ async function askGemini(apiKey, inputData) {
         // Возвращаем объект, чтобы сохранить имя модели
         return {
           text: data.candidates[0].content.parts[0].text,
-          model: m.name 
+          model: m.name
         };
       }
     } catch (e) {
@@ -174,11 +176,11 @@ async function askGemini(apiKey, inputData) {
 
 function getDeepText() {
   function traverse(n) {
-    if (['SCRIPT','STYLE'].includes(n.tagName)) return "";
+    if (['SCRIPT', 'STYLE'].includes(n.tagName)) return "";
     if (n.nodeType === 3) return n.textContent.trim() + " ";
     if (n.shadowRoot) return traverse(n.shadowRoot);
     let t = "";
-    if (n.childNodes) n.childNodes.forEach(c => t+=traverse(c));
+    if (n.childNodes) n.childNodes.forEach(c => t += traverse(c));
     return t;
   }
   return traverse(document.body);

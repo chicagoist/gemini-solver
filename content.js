@@ -1,6 +1,6 @@
 // content.js
 // =========================
-// GEMINI SOLVER 2.4.2 (Model Display Fix)
+// GEMINI SOLVER 2.5.0 (Model Display Fix)
 // =========================
 
 let panel = null;
@@ -82,16 +82,29 @@ function createPanel() {
     if (res.geminiKey) {
       setupDiv.style.display = "none";
       workDiv.style.display = "block";
+            // Можно добавить и сюда для надежности, хотя HTML шаблон это и так содержит
+      resultDiv.innerText = "Выберите действие..."; 
     }
   });
 
   saveBtn.onclick = () => {
     const k = keyInput.value.trim();
-    if (k) chrome.storage.local.set({ geminiKey: k }, () => { setupDiv.style.display = "none"; workDiv.style.display = "block"; });
+    if (k) {
+      chrome.storage.local.set({ geminiKey: k }, () => { 
+         setupDiv.style.display = "none"; 
+         workDiv.style.display = "block"; 
+        // --- ДОБАВЛЕНА СТРОКА НИЖЕ ---
+        resultDiv.innerText = "Выберите действие..."; 
+        });
+      }
   };
 
   resetBtn.onclick = () => {
-    chrome.storage.local.remove("geminiKey", () => { setupDiv.style.display = "block"; workDiv.style.display = "none"; resultDiv.innerText = "Вставьте ключ..."; });
+    chrome.storage.local.remove("geminiKey", () => { 
+      setupDiv.style.display = "block"; 
+      workDiv.style.display = "none"; 
+      resultDiv.innerText = "Вставьте ключ..."; 
+    });
   };
 
   closeBtn.onclick = togglePanel;
